@@ -8,34 +8,62 @@ public class CameraController : MonoBehaviour
     [SerializeField] private Transform playerHead; 
     [SerializeField] private float sensitivity = 1f; 
     [SerializeField] private float verticalClamp = 80f; 
+    [SerializeField] private float smoothTime = 0.1f; 
 
     private float _verticalRotation = 0f; 
-    private Vector2 _lastTouchPosition; 
-    private bool _isSwiping;
+    private Vector2 _currentDelta;
+    private Vector2 _smoothDeltaVelocity; 
+    private int _cameraTouchId = -1; 
 
     private void Update()
     {
-        if (IsPointerDown() && !IsPointerOverFrameNotTouch())
+        HandleTouchInput();
+    }
+
+    private void HandleTouchInput()
+    {
+        if (Input.touchCount > 0)
         {
-            if (IsPointerOverFrameTouchTarget())
+            for (int i = 0; i < Input.touchCount; i++)
             {
-                _isSwiping = true;
-                _lastTouchPosition = GetPointerPosition();
+                Touch touch = Input.GetTouch(i);
+
+                if (_cameraTouchId == -1 && touch.phase == TouchPhase.Began && IsPointerInRightHalf(touch.position) && !IsPointerOverUI(touch.position))
+                {
+                    _cameraTouchId = touch.fingerId;
+                }
+
+                if (touch.fingerId == _cameraTouchId)
+                {
+                    if (touch.phase == TouchPhase.Moved || touch.phase == TouchPhase.Stationary)
+                    {
+                        Vector2 rawDelta = touch.deltaPosition;
+
+                        if (rawDelta.magnitude > 0f)
+                        {
+                            _currentDelta = Vector2.SmoothDamp(_currentDelta, rawDelta, ref _smoothDeltaVelocity, smoothTime);
+                            RotateCamera(_currentDelta);
+                        }
+                    }
+
+                    if (touch.phase == TouchPhase.Ended || touch.phase == TouchPhase.Canceled)
+                    {
+                        _cameraTouchId = -1;
+                        _currentDelta = Vector2.zero;
+                    }
+                }
             }
         }
-
-        if (_isSwiping && IsPointerHeld())
+        else if (Input.GetMouseButton(0) && IsPointerInRightHalf(Input.mousePosition) && !IsPointerOverUI(Input.mousePosition))
         {
-            Vector2 currentTouchPosition = GetPointerPosition();
-            Vector2 delta = currentTouchPosition - _lastTouchPosition;
+            Vector2 rawDelta = new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"));
 
-            RotateCamera(delta);
-
-            _lastTouchPosition = currentTouchPosition;
+            if (rawDelta.magnitude > 0f)
+            {
+                _currentDelta = Vector2.SmoothDamp(_currentDelta, rawDelta, ref _smoothDeltaVelocity, smoothTime);
+                RotateCamera(_currentDelta);
+            }
         }
-
-        if (IsPointerUp())
-            _isSwiping = false;
     }
 
     private void RotateCamera(Vector2 delta)
@@ -48,73 +76,21 @@ public class CameraController : MonoBehaviour
         playerHead.localRotation = Quaternion.Euler(_verticalRotation, 0, 0);
     }
 
-    private Vector2 GetPointerPosition()
+    private bool IsPointerInRightHalf(Vector2 pointerPosition)
     {
-        if (Input.touchCount > 0)
-            return Input.GetTouch(0).position;
-
-        return Input.mousePosition;
+        return pointerPosition.x > Screen.width / 2; 
     }
 
-    private bool IsPointerOverFrameNotTouch()
+    private bool IsPointerOverUI(Vector2 pointerPosition)
     {
         PointerEventData pointerData = new PointerEventData(EventSystem.current)
         {
-            position = GetPointerPosition()
+            position = pointerPosition
         };
 
         var raycastResults = new List<RaycastResult>();
         EventSystem.current.RaycastAll(pointerData, raycastResults);
 
-        foreach (var result in raycastResults)
-        {
-            if (result.gameObject.GetComponent<FrameNotTouch>() != null)
-                return true; 
-        }
-
-        return false;
-    }
-
-    private bool IsPointerOverFrameTouchTarget()
-    {
-        PointerEventData pointerData = new PointerEventData(EventSystem.current)
-        {
-            position = GetPointerPosition()
-        };
-
-        var raycastResults = new List<RaycastResult>();
-        EventSystem.current.RaycastAll(pointerData, raycastResults);
-
-        foreach (var result in raycastResults)
-        {
-            if (result.gameObject.GetComponent<FrameTouchTarget>() != null)
-                return true;
-        }
-
-        return false;
-    }
-
-    private bool IsPointerDown()
-    {
-        if (Input.touchCount > 0)
-            return Input.GetTouch(0).phase == TouchPhase.Began;
-
-        return Input.GetMouseButtonDown(0);
-    }
-
-    private bool IsPointerHeld()
-    {
-        if (Input.touchCount > 0)
-            return Input.GetTouch(0).phase == TouchPhase.Moved || Input.GetTouch(0).phase == TouchPhase.Stationary;
-
-        return Input.GetMouseButton(0);
-    }
-
-    private bool IsPointerUp()
-    {
-        if (Input.touchCount > 0)
-            return Input.GetTouch(0).phase == TouchPhase.Ended;
-
-        return Input.GetMouseButtonUp(0);
+        return raycastResults.Count > 0; 
     }
 }
